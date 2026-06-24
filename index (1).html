@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Onyx — Link in Bio Builder</title>
+<meta name="description" content="Premium drag-and-drop link-in-bio page builder for creators." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar glass">
+    <div class="brand">
+      <div class="logo"></div>
+      <span>ONYX</span>
+    </div>
+    <div class="device-toggle" id="deviceToggle">
+      <button data-device="mobile" class="active" aria-label="Mobile">📱</button>
+      <button data-device="tablet" aria-label="Tablet">▣</button>
+      <button data-device="desktop" aria-label="Desktop">▭</button>
+    </div>
+    <div class="header-actions">
+      <span class="saved">Auto-saved</span>
+      <button id="previewBtn" class="btn-ghost">Preview</button>
+      <button id="publishBtn" class="btn-primary">Publish</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- Left: blocks -->
+    <aside class="panel left">
+      <h3 class="panel-title">Add Block</h3>
+      <div class="palette" id="palette"></div>
+
+      <h3 class="panel-title" style="margin-top:24px">Page Blocks</h3>
+      <p class="hint">Drag to reorder. Click to edit.</p>
+      <div class="block-list" id="blockList"></div>
+    </aside>
+
+    <!-- Center: preview -->
+    <section class="stage">
+      <div class="glow"></div>
+      <div class="device-frame" id="deviceFrame">
+        <div class="phone-preview" id="preview"></div>
+      </div>
+      <div class="url-bar glass">
+        <span>🌐 /p/</span>
+        <input id="slug" value="creator" />
+      </div>
+    </section>
+
+    <!-- Right: inspector -->
+    <aside class="panel right">
+      <h3 class="panel-title">Page</h3>
+      <label class="field">
+        <span>Page name</span>
+        <input id="pageName" value="My Page" />
+      </label>
+
+      <div class="stats">
+        <div class="stat"><span>Clicks</span><strong>1,429</strong></div>
+        <div class="stat"><span>Views</span><strong>8.2k</strong></div>
+      </div>
+
+      <h3 class="panel-title">Theme</h3>
+      <label class="field">
+        <span>Accent color</span>
+        <input type="color" id="accent" value="#8b5cf6" />
+      </label>
+      <label class="field">
+        <span>Background</span>
+        <input type="color" id="bg" value="#0a0a0f" />
+      </label>
+      <label class="field">
+        <span>Button style</span>
+        <select id="btnStyle">
+          <option value="filled">Filled</option>
+          <option value="outline">Outline</option>
+          <option value="glass" selected>Glass</option>
+        </select>
+      </label>
+
+      <h3 class="panel-title">Block Settings</h3>
+      <div id="inspector" class="inspector-empty">Select a block to edit.</div>
+    </aside>
+  </main>
+
+  <!-- Preview modal -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-inner">
+      <button class="modal-close" id="modalClose">×</button>
+      <div class="phone-preview" id="modalPreview"></div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
