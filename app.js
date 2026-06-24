@@ -1,4 +1,4 @@
-// Onyx — Link in Bio Builder (vanilla JS, single-page static app)
+// Onyx — Link in Bio Builder (vanilla JS, static, zero-backend share links)
 (function () {
   'use strict';
 
@@ -55,6 +55,45 @@
     };
   }
 
+  // ===== URL-share encoding (unicode-safe base64url) =====
+  function encodeState(s) {
+    const json = JSON.stringify(s);
+    const b64 = btoa(unescape(encodeURIComponent(json)));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function decodeState(str) {
+    try {
+      let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      return JSON.parse(decodeURIComponent(escape(atob(b64))));
+    } catch (e) { return null; }
+  }
+
+  function getPublishedFromURL() {
+    const h = location.hash || '';
+    const m = h.match(/[#&]u=([^&]+)/);
+    if (m) return decodeState(decodeURIComponent(m[1]));
+    const q = new URLSearchParams(location.search);
+    if (q.get('u')) return decodeState(q.get('u'));
+    return null;
+  }
+
+  // ===== Public (view-only) mode =====
+  function bootPublicView(pubState) {
+    document.getElementById('editorUI').hidden = true;
+    const view = document.getElementById('publicView');
+    view.hidden = false;
+    document.body.style.background = pubState.theme && pubState.theme.bg ? pubState.theme.bg : '#0a0a0f';
+    document.documentElement.style.setProperty('--accent', (pubState.theme && pubState.theme.accent) || '#8b5cf6');
+    document.title = (pubState.name || 'Link in Bio') + ' — Onyx';
+    const root = document.getElementById('publicPage');
+    state = pubState;            // share rendering helpers
+    state._readonly = true;
+    root.innerHTML = '';
+    state.blocks.forEach(b => root.appendChild(renderBlock(b)));
+  }
+
+  // ===== Editor state =====
   let state = load() || defaultState();
   let selectedId = null;
   let device = 'mobile';
@@ -63,7 +102,7 @@
     try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
     catch { return null; }
   }
-  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} }
 
   // === Rendering ===
   function renderPalette() {
@@ -80,7 +119,7 @@
   function renderBlockList() {
     const list = document.getElementById('blockList');
     list.innerHTML = '';
-    state.blocks.forEach((block, i) => {
+    state.blocks.forEach((block) => {
       const item = document.createElement('div');
       item.className = 'block-item' + (block.id === selectedId ? ' selected' : '');
       item.draggable = true;
@@ -89,7 +128,6 @@
       item.innerHTML = `<span class="handle">⋮⋮</span><span>${meta.icon}</span><span class="label">${meta.label}</span><button class="del" title="Delete">×</button>`;
       item.querySelector('.del').onclick = (e) => { e.stopPropagation(); removeBlock(block.id); };
       item.onclick = () => selectBlock(block.id);
-
       item.addEventListener('dragstart', (e) => {
         item.classList.add('dragging');
         e.dataTransfer.setData('text/plain', block.id);
@@ -102,13 +140,13 @@
         const fromId = e.dataTransfer.getData('text/plain');
         if (fromId && fromId !== block.id) reorder(fromId, block.id);
       });
-
       list.appendChild(item);
     });
   }
 
   function renderPreview(target) {
     const root = target || document.getElementById('preview');
+    if (!root) return;
     root.innerHTML = '';
     root.style.background = state.theme.bg;
     state.blocks.forEach(b => root.appendChild(renderBlock(b)));
@@ -118,6 +156,7 @@
     const wrap = document.createElement('div');
     wrap.dataset.id = block.id;
     const p = block.props || {};
+    let returnEl = null;
     switch (block.type) {
       case 'profile': {
         wrap.className = 'pv-profile';
@@ -128,34 +167,23 @@
           <p class="pv-bio">${escapeHTML(p.bio || '')}</p>`;
         break;
       }
-      case 'heading':
-        wrap.className = 'pv-heading';
-        wrap.textContent = p.text || '';
-        break;
-      case 'text':
-        wrap.className = 'pv-text';
-        wrap.textContent = p.text || '';
-        break;
+      case 'heading': wrap.className = 'pv-heading'; wrap.textContent = p.text || ''; break;
+      case 'text':    wrap.className = 'pv-text';    wrap.textContent = p.text || ''; break;
       case 'button': {
         const a = document.createElement('a');
         a.className = 'pv-btn ' + (state.theme.btnStyle || 'glass');
-        a.href = p.url || '#';
-        a.target = '_blank';
-        a.rel = 'noopener';
+        a.href = p.url || '#'; a.target = '_blank'; a.rel = 'noopener';
         a.textContent = p.text || 'Button';
         if (state.theme.btnStyle === 'filled') a.style.background = state.theme.accent;
         if (state.theme.btnStyle === 'outline') a.style.borderColor = state.theme.accent;
-        return a;
+        returnEl = a; break;
       }
       case 'socials': {
         wrap.className = 'pv-socials';
         (p.items || []).forEach(s => {
           const a = document.createElement('a');
-          a.href = s.url || '#';
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.title = s.key;
-          a.textContent = s.icon || '•';
+          a.href = s.url || '#'; a.target = '_blank'; a.rel = 'noopener';
+          a.title = s.key; a.textContent = s.icon || '•';
           wrap.appendChild(a);
         });
         break;
@@ -163,15 +191,8 @@
       case 'gallery': {
         wrap.className = 'pv-gallery';
         (p.images || []).forEach(url => {
-          if (url) {
-            const img = document.createElement('img');
-            img.src = url; img.alt = '';
-            wrap.appendChild(img);
-          } else {
-            const ph = document.createElement('div');
-            ph.className = 'ph'; ph.textContent = '▦';
-            wrap.appendChild(ph);
-          }
+          if (url) { const img = document.createElement('img'); img.src = url; img.alt = ''; wrap.appendChild(img); }
+          else { const ph = document.createElement('div'); ph.className = 'ph'; ph.textContent = '▦'; wrap.appendChild(ph); }
         });
         break;
       }
@@ -184,48 +205,39 @@
         wrap.appendChild(iframe);
         break;
       }
-      case 'divider':
-        wrap.className = 'pv-divider';
-        break;
+      case 'divider': wrap.className = 'pv-divider'; break;
     }
-    wrap.style.cursor = 'pointer';
-    wrap.addEventListener('click', (e) => { e.stopPropagation(); selectBlock(block.id); });
-    return wrap;
+    const el = returnEl || wrap;
+    if (!state._readonly) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (e) => { e.stopPropagation(); selectBlock(block.id); });
+    }
+    return el;
   }
 
   function renderInspector() {
     const el = document.getElementById('inspector');
     const block = state.blocks.find(b => b.id === selectedId);
     if (!block) { el.className = 'inspector-empty'; el.innerHTML = 'Select a block to edit.'; return; }
-    el.className = '';
-    el.innerHTML = '';
+    el.className = ''; el.innerHTML = '';
     const p = block.props || {};
-
     const addField = (label, inputEl) => {
-      const f = document.createElement('label');
-      f.className = 'field';
+      const f = document.createElement('label'); f.className = 'field';
       const s = document.createElement('span'); s.textContent = label;
       f.appendChild(s); f.appendChild(inputEl); el.appendChild(f);
     };
     const txt = (val, oninput, tag) => {
       const i = document.createElement(tag || 'input');
-      i.value = val || '';
-      i.oninput = (e) => oninput(e.target.value);
-      return i;
+      i.value = val || ''; i.oninput = (e) => oninput(e.target.value); return i;
     };
-
     switch (block.type) {
       case 'profile':
         addField('Name', txt(p.name, v => updateProps(block.id, { name: v })));
         addField('Bio', txt(p.bio, v => updateProps(block.id, { bio: v }), 'textarea'));
         addField('Avatar URL', txt(p.avatar, v => updateProps(block.id, { avatar: v })));
         break;
-      case 'heading':
-        addField('Heading text', txt(p.text, v => updateProps(block.id, { text: v })));
-        break;
-      case 'text':
-        addField('Text', txt(p.text, v => updateProps(block.id, { text: v }), 'textarea'));
-        break;
+      case 'heading': addField('Heading text', txt(p.text, v => updateProps(block.id, { text: v }))); break;
+      case 'text':    addField('Text', txt(p.text, v => updateProps(block.id, { text: v }), 'textarea')); break;
       case 'button':
         addField('Label', txt(p.text, v => updateProps(block.id, { text: v })));
         addField('URL', txt(p.url, v => updateProps(block.id, { url: v })));
@@ -233,8 +245,7 @@
       case 'socials':
         (p.items || []).forEach((s, idx) => {
           addField(s.key.toUpperCase() + ' URL', txt(s.url, v => {
-            const items = p.items.slice();
-            items[idx] = { ...items[idx], url: v };
+            const items = p.items.slice(); items[idx] = { ...items[idx], url: v };
             updateProps(block.id, { items });
           }));
         });
@@ -242,27 +253,18 @@
       case 'gallery':
         (p.images || []).forEach((url, idx) => {
           addField('Image ' + (idx + 1) + ' URL', txt(url, v => {
-            const images = p.images.slice();
-            images[idx] = v;
+            const images = p.images.slice(); images[idx] = v;
             updateProps(block.id, { images });
           }));
         });
         break;
-      case 'video':
-        addField('Embed URL (YouTube /embed/...)', txt(p.url, v => updateProps(block.id, { url: v })));
-        break;
-      case 'divider':
-        el.className = 'inspector-empty';
-        el.textContent = 'Divider has no settings.';
-        break;
+      case 'video': addField('Embed URL (YouTube /embed/...)', txt(p.url, v => updateProps(block.id, { url: v }))); break;
+      case 'divider': el.className = 'inspector-empty'; el.textContent = 'Divider has no settings.'; break;
     }
   }
 
   // === Mutations ===
-  function addBlock(type) {
-    state.blocks.push({ id: uid(), type, props: defaultBlockProps(type) });
-    persistAndRender();
-  }
+  function addBlock(type) { state.blocks.push({ id: uid(), type, props: defaultBlockProps(type) }); persistAndRender(); }
   function removeBlock(id) {
     state.blocks = state.blocks.filter(b => b.id !== id);
     if (selectedId === id) selectedId = null;
@@ -270,11 +272,8 @@
   }
   function selectBlock(id) { selectedId = id; renderBlockList(); renderInspector(); }
   function updateProps(id, partial) {
-    const b = state.blocks.find(x => x.id === id);
-    if (!b) return;
-    b.props = { ...b.props, ...partial };
-    save();
-    renderPreview();
+    const b = state.blocks.find(x => x.id === id); if (!b) return;
+    b.props = { ...b.props, ...partial }; save(); renderPreview();
   }
   function reorder(fromId, toId) {
     const from = state.blocks.findIndex(b => b.id === fromId);
@@ -286,32 +285,55 @@
   }
   function persistAndRender() { save(); renderBlockList(); renderPreview(); renderInspector(); }
 
+  // === Publish & share ===
+  function buildShareURL() {
+    const data = encodeState({
+      name: state.name, slug: state.slug, theme: state.theme, blocks: state.blocks,
+    });
+    const base = location.origin + location.pathname;
+    return base + '#u=' + data;
+  }
+
+  function openShareModal() {
+    state.published = true; save();
+    const btn = document.getElementById('publishBtn');
+    btn.textContent = 'Published ✓'; btn.classList.add('published');
+
+    const url = buildShareURL();
+    const modal = document.getElementById('shareModal');
+    const input = document.getElementById('shareUrl');
+    input.value = url;
+    document.getElementById('openBtn').href = url;
+    document.getElementById('qrBtn').href = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(url);
+    modal.hidden = false;
+    setTimeout(() => { input.select(); }, 50);
+  }
+
   // === Header / theme controls ===
   function bindHeader() {
     document.getElementById('deviceToggle').addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-device]');
-      if (!btn) return;
+      const btn = e.target.closest('button[data-device]'); if (!btn) return;
       device = btn.dataset.device;
       document.querySelectorAll('#deviceToggle button').forEach(b => b.classList.toggle('active', b === btn));
       document.getElementById('deviceFrame').className = 'device-frame ' + device;
     });
-    document.getElementById('publishBtn').addEventListener('click', () => {
-      state.published = !state.published;
-      const b = document.getElementById('publishBtn');
-      b.textContent = state.published ? 'Published' : 'Publish';
-      b.classList.toggle('published', state.published);
-      save();
-    });
+    document.getElementById('publishBtn').addEventListener('click', openShareModal);
     document.getElementById('previewBtn').addEventListener('click', () => {
-      const m = document.getElementById('modal');
-      m.hidden = false;
+      const m = document.getElementById('modal'); m.hidden = false;
       renderPreview(document.getElementById('modalPreview'));
     });
-    document.getElementById('modalClose').addEventListener('click', () => {
-      document.getElementById('modal').hidden = true;
-    });
-    document.getElementById('modal').addEventListener('click', (e) => {
-      if (e.target.id === 'modal') document.getElementById('modal').hidden = true;
+    document.getElementById('modalClose').addEventListener('click', () => { document.getElementById('modal').hidden = true; });
+    document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') document.getElementById('modal').hidden = true; });
+
+    document.getElementById('shareClose').addEventListener('click', () => { document.getElementById('shareModal').hidden = true; });
+    document.getElementById('shareModal').addEventListener('click', (e) => { if (e.target.id === 'shareModal') document.getElementById('shareModal').hidden = true; });
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      const input = document.getElementById('shareUrl');
+      try { await navigator.clipboard.writeText(input.value); }
+      catch { input.select(); document.execCommand('copy'); }
+      const b = document.getElementById('copyBtn');
+      b.textContent = 'Copied!'; b.classList.add('copied');
+      setTimeout(() => { b.textContent = 'Copy'; b.classList.remove('copied'); }, 1600);
     });
 
     document.getElementById('pageName').addEventListener('input', e => { state.name = e.target.value; save(); });
@@ -334,20 +356,24 @@
     document.documentElement.style.setProperty('--accent', state.theme.accent);
     if (state.published) {
       const b = document.getElementById('publishBtn');
-      b.textContent = 'Published'; b.classList.add('published');
+      b.textContent = 'Published ✓'; b.classList.add('published');
     }
   }
 
   function escapeHTML(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
   function escapeAttr(s) { return escapeHTML(s); }
 
-  // Init
+  // === Init: pick mode ===
   document.addEventListener('DOMContentLoaded', () => {
-    renderPalette();
-    bindHeader();
-    hydrateControls();
-    renderBlockList();
-    renderPreview();
-    renderInspector();
+    const pub = getPublishedFromURL();
+    if (pub && pub.blocks) { bootPublicView(pub); return; }
+    renderPalette(); bindHeader(); hydrateControls();
+    renderBlockList(); renderPreview(); renderInspector();
+  });
+
+  // Re-render public view if hash changes
+  window.addEventListener('hashchange', () => {
+    const pub = getPublishedFromURL();
+    if (pub && pub.blocks) bootPublicView(pub);
   });
 })();
